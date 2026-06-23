@@ -1,26 +1,65 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #eef1f7;
+  --foreground: #1a1a1a;
+
+  /* Shadows — warm maroon-tinted */
+  --shadow-card: 0 1px 2px rgba(68,16,16,0.04), 0 8px 24px rgba(68,16,16,0.07);
+  --shadow-lg:   0 18px 44px rgba(68,16,16,0.16);
+  --shadow-primary: 0 14px 30px rgba(255,81,47,0.30);
+  --shadow-gold:    0 12px 26px rgba(201,162,75,0.34);
+
+  /* Radii */
+  --r-sm: 12px; --r-md: 18px; --r-lg: 24px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 0.2s; --dur-fast: 0.15s;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --font-sans: var(--font-outfit);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* AMER 24/7 brand palette — mirrors amer-247-expo/src/theme.ts */
+  --color-amer-900: #7a1508;
+  --color-amer-800: #922010;
+  --color-amer-700: #ff512f;
+  --color-amer-600: #e24020;
+  --color-amer-500: #ff6b4a;
+  --color-amer-400: #ff9669;
+
+  --color-gold: #c9a24b;
+  --color-gold-light: #e3c77e;
+  --color-gold-dark: #a6822f;
+
+  --color-teal: #1ba39c;
+
+  --color-ink: #1a1a1a;
+  --color-text: #262626;
+  --color-muted: #6b7687;
+  --color-muted-2: #9aa4b2;
+
+  --color-line: #e9edf4;
+  --color-line-2: #f0f3f8;
+  --color-surface: #ffffff;
+  --color-bg: #eef1f7;
+  --color-bg-card: #f6f8fc;
+
+  --color-ground-1: #4a1808;
+  --color-ground-2: #1a0a05;
+  --color-ground-3: #120804;
+
+  --color-danger: #c0392b;
+
+  --color-success-bg: rgba(27, 163, 156, 0.13);
+  --color-success-fg: #0d6b66;
+  --color-primary-bg: rgba(255, 81, 47, 0.12);
+  --color-gold-bg: rgba(201, 162, 75, 0.18);
+  --color-gold-fg: #a6822f;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-ink);
 }
