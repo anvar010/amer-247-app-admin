@@ -3,6 +3,9 @@ import { ConfigForm } from "./config-form";
 import { BonusCashbackForm } from "./bonus-cashback-form";
 import { PromoForm } from "./promo-form";
 import { CashbackRulesForm } from "./cashback-rules-form";
+import { Pagination } from "@/components/pagination";
+
+const TX_PER_PAGE = 10;
 
 const TX_BADGE: Record<string, { cls: string; label: string }> = {
   welcome_bonus:    { cls: "bg-gold-bg text-gold-fg border-gold-bg",           label: "Welcome" },
@@ -13,18 +16,24 @@ const TX_BADGE: Record<string, { cls: string; label: string }> = {
   admin_debit:      { cls: "bg-red-50 text-danger border-red-100",             label: "Debit" },
 };
 
-export default async function WalletPage() {
+export default async function WalletPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const { page: pageParam } = await searchParams;
+  const page = Math.max(1, parseInt(pageParam ?? "1", 10));
+
   const supabase = await createClient();
 
-  // Fetch config, wallet stats, transactions, users, cashback rules, and known service names in parallel
   const [configRes, walletsRes, txnsRes, usersRes, rulesRes] = await Promise.all([
     supabase.from("app_config").select("key,value").in("key", ["welcome_bonus", "max_credit_per_service", "cashback_type", "cashback_value"]),
     supabase.from("wallets").select("credits,total_earned,total_spent"),
     supabase
       .from("wallet_transactions")
-      .select("id,user_id,amount,type,description,ref,created_at")
+      .select("id,user_id,amount,type,description,ref,created_at", { count: "exact" })
       .order("created_at", { ascending: false })
-      .limit(50),
+      .range((page - 1) * TX_PER_PAGE, page * TX_PER_PAGE - 1),
     supabase
       .from("profiles")
       .select("id,full_name,email")
@@ -52,9 +61,10 @@ export default async function WalletPage() {
   const totalEarned   = wallets.reduce((s, w) => s + Number(w.total_earned), 0);
   const totalSpent    = wallets.reduce((s, w) => s + Number(w.total_spent), 0);
 
-  const txns  = txnsRes.data  || [];
-  const users = usersRes.data || [];
-  const rules = rulesRes.data || [];
+  const txns      = txnsRes.data  || [];
+  const txnTotal  = txnsRes.count ?? 0;
+  const users     = usersRes.data || [];
+  const rules     = rulesRes.data || [];
 
   return (
     <div className="flex flex-col gap-6">
@@ -100,7 +110,7 @@ export default async function WalletPage() {
       <div className="rounded-2xl bg-surface shadow-sm">
         <div className="border-b border-line-2 px-6 py-4">
           <h2 className="text-base font-bold text-ink">Recent transactions</h2>
-          <p className="mt-0.5 text-sm text-muted">Last 50 wallet events across all users</p>
+          <p className="mt-0.5 text-sm text-muted">{txnTotal} wallet events across all users</p>
         </div>
 
         <div className="overflow-x-auto">
@@ -154,6 +164,7 @@ export default async function WalletPage() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} total={txnTotal} perPage={TX_PER_PAGE} />
       </div>
     </div>
   );
