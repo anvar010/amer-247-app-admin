@@ -1,28 +1,15 @@
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { Topbar } from "@/components/topbar";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user, profile } = await getSessionUser();
 
-  let displayName = user?.email ?? "Admin";
-  let isSuperAdmin = false;
-  let userRole = "admin";
+  const displayName = profile?.full_name || user?.email || "Admin";
+  const userRole    = profile?.role ?? "admin";
+  const isSuperAdmin = profile?.role === "super_admin";
 
-  if (user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("full_name, role")
-      .eq("id", user.id)
-      .single();
-    displayName = profile?.full_name || user.email || "Admin";
-    userRole    = profile?.role ?? "admin";
-    isSuperAdmin = profile?.role === "super_admin";
-  }
-
-  // Badge counts: submitted applications + pending user documents
   const admin = createAdminClient();
   const [{ count: newApps }, { count: pendingDocs }] = await Promise.all([
     admin.from("applications").select("*", { count: "exact", head: true }).eq("status", "submitted"),

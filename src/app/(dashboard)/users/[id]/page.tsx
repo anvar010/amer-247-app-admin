@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { UserDocStatus } from "@/components/user-doc-status";
 import { AdminPermissions } from "@/components/admin-permissions";
@@ -37,11 +37,7 @@ export default async function UserDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const { data: { user: currentUser } } = await supabase.auth.getUser();
-  const { data: currentProfile } = await supabase
-    .from("profiles").select("role").eq("id", currentUser!.id).single();
+  const { user: currentUser, profile: currentProfile, supabase } = await getSessionUser();
   const isSuperAdmin = currentProfile?.role === "super_admin";
 
   let canManageDocs = isSuperAdmin;

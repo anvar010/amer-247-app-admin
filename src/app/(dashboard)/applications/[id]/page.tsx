@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
 import { StatusSelect } from "@/components/status-select";
 import { labelForField } from "@/lib/form-fields";
 
@@ -91,10 +91,7 @@ export default async function ApplicationDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const { data: { user: currentUser } } = await supabase.auth.getUser();
-  const { data: currentProfile } = await supabase.from("profiles").select("role").eq("id", currentUser!.id).single();
+  const { user: currentUser, profile: currentProfile, supabase } = await getSessionUser();
   const currentRole = currentProfile?.role ?? "user";
   const isSuperAdmin = currentRole === "super_admin";
 
