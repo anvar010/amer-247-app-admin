@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
 import { redirect } from "next/navigation";
 import { ComposeForm, BroadcastActions } from "./compose-form";
 
@@ -18,10 +18,7 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
 };
 
 export default async function NotificationsPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: profile } = await supabase
-    .from("profiles").select("role").eq("id", user!.id).single();
+  const { user, profile, supabase } = await getSessionUser();
 
   const isSuperAdmin = profile?.role === "super_admin";
   let canSend = isSuperAdmin;

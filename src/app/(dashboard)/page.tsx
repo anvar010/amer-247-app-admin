@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { RealtimeRefresher } from "@/components/realtime-refresher";
 
 const STATUS_META: Record<string, { label: string; pill: string; bar: string; dotBg: string; dotColor: string; icon: React.ReactNode }> = {
@@ -39,12 +40,8 @@ function initials(name: string) {
 import React from "react";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  const { data: profile } = user
-    ? await supabase.from("profiles").select("full_name").eq("id", user.id).single()
-    : { data: null };
+  const { user, profile } = await getSessionUser();
+  const admin = createAdminClient();
 
   const firstName = (profile?.full_name || user?.email?.split("@")[0] || "Admin").split(" ")[0];
 
@@ -54,10 +51,10 @@ export default async function DashboardPage() {
     { data: byStatus },
     { data: recent },
   ] = await Promise.all([
-    supabase.from("applications").select("*", { count: "exact", head: true }),
-    supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "user"),
-    supabase.from("applications").select("status"),
-    supabase
+    admin.from("applications").select("*", { count: "exact", head: true }),
+    admin.from("profiles").select("*", { count: "exact", head: true }).eq("role", "user"),
+    admin.from("applications").select("status"),
+    admin
       .from("applications")
       .select("id, ref, service_name, status, fee, created_at, hub_title, user_id")
       .order("created_at", { ascending: false })
@@ -73,7 +70,7 @@ export default async function DashboardPage() {
   // Fetch profiles for recent apps
   const recentUserIds = Array.from(new Set((recent || []).map((a) => a.user_id).filter(Boolean)));
   const { data: recentProfiles } = recentUserIds.length
-    ? await supabase.from("profiles").select("id, full_name, email").in("id", recentUserIds)
+    ? await admin.from("profiles").select("id, full_name, email").in("id", recentUserIds)
     : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
   const profileMap = new Map((recentProfiles || []).map((p) => [p.id, p]));
 

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DocActions } from "./doc-actions";
 
@@ -36,16 +36,13 @@ export default async function DocumentsPage({
     ? (filterParam as Filter)
     : "All";
 
-  const supabase = await createClient();
+  const { user, profile, supabase } = await getSessionUser();
   const adminClient = createAdminClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: currentProfile } = await supabase
-    .from("profiles").select("role").eq("id", user!.id).single();
-  const isSuperAdmin = currentProfile?.role === "super_admin";
+  const isSuperAdmin = profile?.role === "super_admin";
 
   let canManageDocs = isSuperAdmin;
-  if (!isSuperAdmin && currentProfile?.role === "admin") {
+  if (!isSuperAdmin && profile?.role === "admin") {
     const { data: perms } = await supabase
       .from("admin_permissions")
       .select("can_manage_documents")

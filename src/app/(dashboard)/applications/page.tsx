@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { StatusSelect } from "@/components/status-select";
 import { SearchInput } from "@/components/search-input";
 import { Pagination } from "@/components/pagination";
@@ -38,39 +39,46 @@ export default async function ApplicationsPage({
   const searchQuery  = q?.trim() ?? "";
   const page         = Math.max(1, parseInt(pageParam ?? "1", 10));
 
-  const supabase = await createClient();
+  const { user, profile, supabase } = await getSessionUser();
+  const admin = createAdminClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: currentProfile } = await supabase
-    .from("profiles").select("role").eq("id", user!.id).single();
-  const currentRole = currentProfile?.role ?? "user";
+  const currentRole = profile?.role ?? "user";
   const isSuperAdmin = currentRole === "super_admin";
 
-  let canViewApplications = isSuperAdmin;
-  let canChangeStatus = isSuperAdmin;
-  if (!isSuperAdmin && currentRole === "admin") {
-    const { data: perms } = await supabase
-      .from("admin_permissions")
-      .select("can_view_all_applications, can_change_application_status")
-      .eq("user_id", user!.id)
-      .maybeSingle();
-    canViewApplications = !!(perms as { can_view_all_applications?: boolean } | null)?.can_view_all_applications;
-    canChangeStatus = !!(perms as { can_change_application_status?: boolean } | null)?.can_change_application_status;
-  }
-
-  // Fetch apps with count — search shows all results, otherwise paginate
+  // Fetch permissions + app data in parallel
   const buildAppQuery = () => {
-    let q = supabase.from("applications").select("*", { count: "exact" }).order("created_at", { ascending: false });
+    let q = admin.from("applications").select("*", { count: "exact" }).order("created_at", { ascending: false });
     if (activeStatus) q = q.eq("status", activeStatus) as typeof q;
     if (searchQuery)  q = q.or(`ref.ilike.%${searchQuery}%,service_name.ilike.%${searchQuery}%,applicant_name.ilike.%${searchQuery}%,hub_title.ilike.%${searchQuery}%`) as typeof q;
     return q;
   };
-  const { data: allRows, count: appTotal } = searchQuery || activeStatus
-    ? await buildAppQuery()
-    : await buildAppQuery().range((page - 1) * PER_PAGE, page * PER_PAGE - 1);
+
+  const [appsResult, countResult, permsResult] = await Promise.all([
+    searchQuery || activeStatus
+      ? buildAppQuery()
+      : buildAppQuery().range((page - 1) * PER_PAGE, page * PER_PAGE - 1),
+    admin.from("applications").select("status"),
+    !isSuperAdmin && currentRole === "admin"
+      ? supabase
+          .from("admin_permissions")
+          .select("can_view_all_applications, can_change_application_status")
+          .eq("user_id", user!.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const { data: allRows, count: appTotal } = appsResult;
+  const { data: countRows } = countResult;
+  const perms = permsResult.data as { can_view_all_applications?: boolean; can_change_application_status?: boolean } | null;
+
+  let canViewApplications = isSuperAdmin;
+  let canChangeStatus = isSuperAdmin;
+  if (!isSuperAdmin && currentRole === "admin") {
+    canViewApplications = !!perms?.can_view_all_applications;
+    canChangeStatus = !!perms?.can_change_application_status;
+  }
 
   // Status counts (separate lightweight query)
-  const { data: countRows } = await supabase.from("applications").select("status");
   const statusCounts: Record<string, number> = {};
   (countRows || []).forEach((r) => { statusCounts[r.status] = (statusCounts[r.status] || 0) + 1; });
   const totalCount = (countRows || []).length;
@@ -91,7 +99,7 @@ export default async function ApplicationsPage({
   // Profile lookup
   const userIds = Array.from(new Set(applications.map((a) => a.user_id)));
   const { data: profiles } = userIds.length
-    ? await supabase.from("profiles").select("id, full_name, email").in("id", userIds)
+    ? await admin.from("profiles").select("id, full_name, email").in("id", userIds)
     : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
   const profileMap = new Map((profiles || []).map((p) => [p.id, p]));
 

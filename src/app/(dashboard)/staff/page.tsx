@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
 import { AddStaffForm } from "./add-staff-form";
 
 const ROLE_CARDS = [
@@ -28,15 +28,9 @@ const ROLE_CARDS = [
 ];
 
 export default async function StaffPage() {
-  const supabase = await createClient();
+  const { profile, supabase } = await getSessionUser();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: currentProfile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user!.id)
-    .single();
-  if (currentProfile?.role !== "super_admin") redirect("/unauthorized");
+  if (profile?.role !== "super_admin") redirect("/unauthorized");
 
   const { data: staff } = await supabase
     .from("staff")

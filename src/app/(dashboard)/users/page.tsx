@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { SearchInput } from "@/components/search-input";
 import { Pagination } from "@/components/pagination";
 import { RealtimeRefresher } from "@/components/realtime-refresher";
@@ -25,22 +26,18 @@ export default async function UsersPage({
   const searchQuery = q?.trim() ?? "";
   const page        = Math.max(1, parseInt(pageParam ?? "1", 10));
 
-  const supabase = await createClient();
+  const { profile } = await getSessionUser();
+  const admin = createAdminClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: currentProfile } = await supabase
-    .from("profiles").select("role").eq("id", user!.id).single();
-  const currentUserRole = currentProfile?.role ?? "user";
+  const currentUserRole = profile?.role ?? "user";
 
-  // Base query builder (reused for both count and data)
   const buildQuery = () => {
-    let q = supabase.from("profiles").select("*", { count: "exact" }).order("created_at", { ascending: false });
+    let q = admin.from("profiles").select("*", { count: "exact" }).order("created_at", { ascending: false });
     if (currentUserRole !== "super_admin") q = q.eq("role", "user") as typeof q;
     if (searchQuery) q = q.or(`full_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,mobile.ilike.%${searchQuery}%`) as typeof q;
     return q;
   };
 
-  // When searching: return all matches. When paginating: apply range.
   const { data: profiles, count: total } = searchQuery
     ? await buildQuery()
     : await buildQuery().range((page - 1) * PER_PAGE, page * PER_PAGE - 1);
