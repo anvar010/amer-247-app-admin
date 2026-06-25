@@ -1,7 +1,8 @@
+import React from "react";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { getSessionUser } from "@/lib/supabase/session";
-import { StatusSelect } from "@/components/status-select";
+import { StatusSelect, RefundStatusSelect } from "@/components/status-select";
 import { labelForField } from "@/lib/form-fields";
 
 const STATUS_STEP: Record<string, number> = {
@@ -199,21 +200,19 @@ export default async function ApplicationDetailPage({
           ) : (
             <dl className="grid gap-x-4" style={{ gridTemplateColumns: "140px 1fr" }}>
               {Object.entries(formData).map(([k, val], i) => (
-                <>
+                <React.Fragment key={k}>
                   <dt
-                    key={`dt-${k}`}
                     className={`py-[9px] text-[13px] text-muted ${i > 0 ? "border-t border-line-2" : ""}`}
                   >
                     {labelForField(a.form_type, k)}
                   </dt>
                   <dd
-                    key={`dd-${k}`}
                     className={`py-[9px] text-right text-[13.5px] font-semibold text-ink ${i > 0 ? "border-t border-line-2" : ""}`}
                     style={{ margin: 0 }}
                   >
                     {val || "—"}
                   </dd>
-                </>
+                </React.Fragment>
               ))}
             </dl>
           )}
@@ -291,6 +290,14 @@ export default async function ApplicationDetailPage({
               <p className="mt-[2px] text-[13px] text-[#B53224]">{a.rejection_reason}</p>
             </div>
           </div>
+        )}
+
+        {/* Refund status — shown for rejected group members */}
+        {a.status === "rejected" && canChangeStatus && (
+          <RefundStatusSelect
+            applicationId={a.id}
+            refundStatus={(a as AppRow).refund_status}
+          />
         )}
       </div>
     );
@@ -383,6 +390,7 @@ export default async function ApplicationDetailPage({
                 <StatusSelect
                   applicationId={app.id}
                   status={app.status}
+                  refundStatus={(app as AppRow).refund_status}
                   rejectionReason={app.rejection_reason}
                   userId={app.user_id}
                   applicantName={(app as AppRow).applicant_name}
