@@ -431,21 +431,19 @@ export default async function ApplicationDetailPage({
                   ["Location", app.location || "—"],
                   ["Submitted", new Date(app.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })],
                 ].map(([label, val], i) => (
-                  <>
+                  <React.Fragment key={label}>
                     <dt
-                      key={`fdt-${label}`}
                       className={`py-[8px] text-[12.5px] text-muted ${i > 0 ? "border-t border-line-2" : ""}`}
                     >
                       {label}
                     </dt>
                     <dd
-                      key={`fdd-${label}`}
                       className={`py-[8px] text-right text-[12.5px] font-semibold text-ink capitalize ${i > 0 ? "border-t border-line-2" : ""}`}
                       style={{ margin: 0 }}
                     >
                       {val}
                     </dd>
-                  </>
+                  </React.Fragment>
                 ))}
               </dl>
             </div>
@@ -477,21 +475,19 @@ export default async function ApplicationDetailPage({
                 ["Mobile",      profile?.mobile      || "—"],
                 ["Nationality", profile?.nationality || "—"],
               ].map(([label, val], i) => (
-                <>
+                <React.Fragment key={label}>
                   <dt
-                    key={`adt-${label}`}
                     className={`py-[9px] text-[12.5px] text-muted ${i > 0 ? "border-t border-line-2" : ""}`}
                   >
                     {label}
                   </dt>
                   <dd
-                    key={`add-${label}`}
                     className={`py-[9px] text-right text-[12.5px] font-semibold text-ink ${i > 0 ? "border-t border-line-2" : ""}`}
                     style={{ margin: 0 }}
                   >
                     {val}
                   </dd>
-                </>
+                </React.Fragment>
               ))}
             </dl>
           </div>
