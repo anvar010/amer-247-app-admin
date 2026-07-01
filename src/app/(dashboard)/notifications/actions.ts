@@ -57,7 +57,6 @@ async function sendExpoPush(
       });
       const json = await res.json() as { data?: ExpoResult[]; errors?: { code: string; message: string }[] };
 
-      console.log("[push] Expo response:", JSON.stringify(json));
 
       if (json.data) {
         for (const r of json.data) {
@@ -125,7 +124,6 @@ export async function sendBroadcast(formData: FormData) {
   if (!title || !message) throw new Error("Title and message are required");
 
   const tokens = await getTokensForAudience(audience);
-  console.log(`[push] Sending to ${tokens.length} token(s), audience=${audience}`);
   const { ok: reach, firstError } = await sendExpoPush(tokens, title, message);
 
   await admin.from("broadcasts").insert({
@@ -156,7 +154,6 @@ export async function sendDraft(broadcastId: string) {
   if (!bc) throw new Error("Broadcast not found");
 
   const tokens = await getTokensForAudience(bc.audience as Audience);
-  console.log(`[push] Resending draft to ${tokens.length} token(s)`);
   const { ok: reach, firstError } = await sendExpoPush(tokens, bc.title, bc.message);
 
   await admin.from("broadcasts").update({

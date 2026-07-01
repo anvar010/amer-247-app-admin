@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/session";
 import { ConfigForm } from "./config-form";
 import { BonusCashbackForm } from "./bonus-cashback-form";
 import { PromoForm } from "./promo-form";
@@ -23,6 +25,9 @@ export default async function WalletPage({
 }) {
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10));
+
+  const { profile } = await getSessionUser();
+  if (profile?.role !== "super_admin") redirect("/");
 
   const supabase = await createClient();
 

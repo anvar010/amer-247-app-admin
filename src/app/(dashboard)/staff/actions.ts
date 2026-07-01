@@ -17,9 +17,16 @@ export async function createStaffMember(_prev: { error?: string; success?: boole
     return { error: "Password must be at least 8 characters." };
   }
 
-  // Get the current super_admin's ID to record who created this staff member
   const supabase = await createClient();
   const { data: { user: creator } } = await supabase.auth.getUser();
+  if (!creator) return { error: "Unauthorized." };
+
+  const { data: callerProfile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", creator.id)
+    .single();
+  if (callerProfile?.role !== "super_admin") return { error: "Only super admins can create staff members." };
 
   const adminClient = createAdminClient();
 
