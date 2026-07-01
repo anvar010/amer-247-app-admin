@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { updateDocStatus } from "../users/[id]/actions";
 
 export function DocActions({
@@ -14,21 +15,26 @@ export function DocActions({
   status: string;
   rejectionReason: string | null;
 }) {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState(rejectionReason || "");
 
   const verify = async () => {
     setBusy(true);
-    await updateDocStatus(docId, "verified", null, userId);
+    const res = await updateDocStatus(docId, "approved", null, userId);
     setBusy(false);
+    if (res?.error) { alert(res.error); return; }
+    router.refresh();
   };
 
   const confirmReject = async () => {
     setBusy(true);
-    await updateDocStatus(docId, "rejected", reason.trim() || null, userId);
+    const res = await updateDocStatus(docId, "rejected", reason.trim() || null, userId);
     setBusy(false);
     setRejecting(false);
+    if (res?.error) { alert(res.error); return; }
+    router.refresh();
   };
 
   return (
@@ -36,7 +42,7 @@ export function DocActions({
       {/* Verify button */}
       <button
         onClick={verify}
-        disabled={busy || status === "verified"}
+        disabled={busy || status === "approved"}
         title="Verify"
         className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-bg-card text-muted transition-colors hover:bg-[rgba(27,163,156,0.13)] hover:text-[#0D6B66] disabled:opacity-40 disabled:pointer-events-none"
       >

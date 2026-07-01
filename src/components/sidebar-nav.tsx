@@ -44,6 +44,11 @@ const icons = {
       <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
     </svg>
   ),
+  inbox: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]">
+      <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+    </svg>
+  ),
   signout: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
@@ -66,8 +71,9 @@ const NAV: Section[] = [
     label: "OPERATIONS",
     links: [
       { href: "/applications", label: "Applications",  icon: icons.applications },
-      { href: "/documents",      label: "Documents",      icon: icons.documents },
-      { href: "/notifications",  label: "Notifications",  icon: icons.notifications },
+      { href: "/documents",    label: "Documents",      icon: icons.documents },
+      { href: "/inbox",        label: "Inbox",          icon: icons.inbox },
+      { href: "/notifications",label: "Notifications",  icon: icons.notifications },
     ],
   },
   {
@@ -172,7 +178,7 @@ export function SidebarNav({
                     <Link
                       key={link.href}
                       href={link.href}
-                      className={`relative flex items-center gap-3 rounded-[11px] px-3 py-[10px] text-[14px] transition-all duration-[0.2s] ${
+                      className={`relative flex items-center gap-3 rounded-[11px] px-3 py-[10px] text-[14px] transition-colors duration-150 active:scale-[0.98] ${
                         active
                           ? "font-semibold text-white"
                           : "font-medium text-white/[.74] hover:text-white"
@@ -180,6 +186,7 @@ export function SidebarNav({
                       style={{
                         background: active ? "rgba(255,255,255,0.12)" : undefined,
                         boxShadow: active ? "inset 0 0 0 1px rgba(255,255,255,0.08)" : undefined,
+                        transition: "background 0.15s, color 0.15s, transform 0.1s",
                       }}
                       onMouseEnter={(e) => {
                         if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)";
@@ -190,7 +197,7 @@ export function SidebarNav({
                     >
                       {active && (
                         <span
-                          className="absolute rounded-r-[3px]"
+                          className="animate-indicator absolute rounded-r-[3px]"
                           style={{
                             left: -12, top: 9, bottom: 9, width: 3,
                             background: "#E3C77E",

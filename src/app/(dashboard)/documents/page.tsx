@@ -13,13 +13,14 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   other:          "Other",
 };
 
-const FILTERS = ["All", "Pending", "Verified", "Rejected"] as const;
+const FILTERS = ["All", "Pending", "In_review", "Approved", "Rejected"] as const;
 type Filter = (typeof FILTERS)[number];
 
 const STATE_TAG: Record<string, { bg: string; color: string; icon: "check" | "x" | null }> = {
-  Verified: { bg: "rgba(27,163,156,0.13)", color: "#0D6B66", icon: "check" },
-  Pending:  { bg: "rgba(201,162,75,0.18)", color: "#A6822F", icon: null },
-  Rejected: { bg: "#FBE9E7",               color: "#B53224", icon: "x"    },
+  Approved:  { bg: "rgba(27,163,156,0.13)", color: "#0D6B66", icon: "check" },
+  In_review: { bg: "rgba(255,81,47,0.10)",  color: "#E24020", icon: null },
+  Pending:   { bg: "rgba(201,162,75,0.18)", color: "#A6822F", icon: null },
+  Rejected:  { bg: "#FBE9E7",               color: "#B53224", icon: "x"   },
 };
 
 function initials(name: string) {
@@ -58,9 +59,10 @@ export default async function DocumentsPage({
     .select("*")
     .order("created_at", { ascending: false });
 
+  const filterValue = activeFilter === "In_review" ? "in_review" : activeFilter.toLowerCase();
   const { data: allDocs } = activeFilter === "All"
     ? await docsQuery
-    : await docsQuery.eq("status", activeFilter.toLowerCase());
+    : await docsQuery.eq("status", filterValue);
 
   // Status counts
   const { data: countRows } = await adminClient.from("user_documents").select("status");
@@ -157,7 +159,7 @@ export default async function DocumentsPage({
       ) : (
         groups.map((group) => {
           const profile = group.profile;
-          const verified = group.docs.filter((d) => d.status === "verified").length;
+          const verified = group.docs.filter((d) => d.status === "approved").length;
           const pending  = group.docs.filter((d) => d.status === "pending").length;
           const ini = initials(profile?.full_name || profile?.email || "?");
 

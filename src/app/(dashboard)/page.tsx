@@ -44,12 +44,15 @@ export default async function DashboardPage() {
   const admin = createAdminClient();
 
   const firstName = (profile?.full_name || user?.email?.split("@")[0] || "Admin").split(" ")[0];
+  const isSuperAdmin = profile?.role === "super_admin";
 
   const [
     { count: totalApps },
     { count: totalUsers },
     { data: byStatus },
     { data: recent },
+    { data: myAssignments },
+    { data: staffAvailability },
   ] = await Promise.all([
     admin.from("applications").select("*", { count: "exact", head: true }),
     admin.from("profiles").select("*", { count: "exact", head: true }).eq("role", "user"),
@@ -59,6 +62,20 @@ export default async function DashboardPage() {
       .select("id, ref, service_name, status, fee, created_at, hub_title, user_id")
       .order("created_at", { ascending: false })
       .limit(6),
+    user
+      ? admin
+          .from("applications")
+          .select("id, ref, service_name, status, created_at, assignment_status")
+          .eq("assigned_to", user.id)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] as { id: string; ref: string; service_name: string; status: string; created_at: string; assignment_status: string | null }[] }),
+    isSuperAdmin
+      ? admin
+          .from("profiles")
+          .select("id, full_name, email, role, staff_status")
+          .in("role", ["admin", "super_admin"])
+          .order("full_name")
+      : Promise.resolve({ data: [] as { id: string; full_name: string | null; email: string | null; role: string; staff_status: string | null }[] }),
   ]);
 
   const counts: Record<string, number> = {};
@@ -199,6 +216,71 @@ export default async function DashboardPage() {
         ))}
       </div>
 
+      {/* ── My Assignments ── */}
+      {(myAssignments || []).length > 0 && (
+        <div className={cardCls} style={cardShadow}>
+          <div className="flex items-center gap-3 border-b border-line px-[22px] py-[18px]">
+            <h3 className="text-[16px] font-bold text-ink" style={{ fontFamily: "var(--font-outfit)" }}>
+              My assignments
+            </h3>
+            <span className="ml-auto rounded-full bg-bg-card px-3 py-[3px] text-[11px] font-semibold text-muted">
+              {(myAssignments || []).length}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-line-2">
+                  {["Reference", "Service", "Status", "Queue", "Submitted"].map((h) => (
+                    <th
+                      key={h}
+                      className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.04em] text-muted-2 first:pl-[22px] last:pr-[22px]"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(myAssignments || []).map((a) => {
+                  const meta = STATUS_META[a.status] ?? STATUS_META.submitted;
+                  const isQueued = a.assignment_status === "queued";
+                  return (
+                    <tr key={a.id} className="border-b border-line-2 transition-colors last:border-none hover:bg-bg-card">
+                      <td className="py-[13px] pl-[22px] pr-4">
+                        <Link href={`/applications/${a.id}`} className="text-[12.5px] font-bold text-ink hover:text-amer-700" style={{ fontFamily: "var(--font-outfit)" }}>
+                          {a.ref}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-[13px] text-[13px] text-ink">{a.service_name}</td>
+                      <td className="px-4 py-[13px]">
+                        <span className={`inline-flex items-center rounded-full px-[10px] py-[4px] text-[11.5px] font-bold ${meta.pill}`}>
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-[13px]">
+                        {isQueued ? (
+                          <span className="inline-flex items-center rounded-full bg-[#FFF8E7] px-[8px] py-[3px] text-[11px] font-bold text-[#A6822F]">
+                            Queued
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-[#E7F4F3] px-[8px] py-[3px] text-[11px] font-bold text-[#0D6B66]">
+                            Assigned
+                          </span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap py-[13px] pl-4 pr-[22px] text-[12.5px] text-muted">
+                        {new Date(a.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── Pipeline + Activity row ── */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
 
@@ -296,6 +378,70 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Staff Availability (super admin only) ── */}
+      {isSuperAdmin && (staffAvailability || []).length > 0 && (
+        <div className={cardCls} style={cardShadow}>
+          <div className="flex items-center gap-3 border-b border-line px-[22px] py-[18px]">
+            <h3 className="text-[16px] font-bold text-ink" style={{ fontFamily: "var(--font-outfit)" }}>
+              Staff availability
+            </h3>
+            <div className="ml-auto flex items-center gap-[10px]">
+              <span className="flex items-center gap-[5px] text-[12px] font-semibold text-[#0D6B66]">
+                <span className="inline-block h-[7px] w-[7px] rounded-full bg-[#0D6B66]" />
+                {(staffAvailability || []).filter((s) => !s.staff_status || s.staff_status === "free").length} Free
+              </span>
+              <span className="flex items-center gap-[5px] text-[12px] font-semibold text-[#E24020]">
+                <span className="inline-block h-[7px] w-[7px] rounded-full bg-[#E24020]" />
+                {(staffAvailability || []).filter((s) => s.staff_status === "engaged").length} Engaged
+              </span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-0 divide-x divide-line lg:grid-cols-4">
+            {(staffAvailability || []).map((s, i) => {
+              const free = !s.staff_status || s.staff_status === "free";
+              const name = s.full_name || s.email || "Unknown";
+              const initText = name.split(" ").filter(Boolean).slice(0, 2).map((w: string) => w[0].toUpperCase()).join("");
+              return (
+                <div
+                  key={s.id}
+                  className={`flex flex-col items-center gap-[8px] px-[16px] py-[18px] ${
+                    i >= 2 ? "border-t border-line lg:border-t-0" : ""
+                  }`}
+                >
+                  <div
+                    className="relative flex h-[44px] w-[44px] flex-shrink-0 items-center justify-center rounded-[13px] text-[15px] font-black text-amer-700"
+                    style={{ background: "var(--bg-card)" }}
+                  >
+                    {initText}
+                    <span
+                      className="absolute -right-[3px] -top-[3px] h-[11px] w-[11px] rounded-full border-2 border-surface"
+                      style={{ background: free ? "#0D6B66" : "#E24020" }}
+                    />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[13px] font-semibold text-ink leading-tight truncate max-w-[100px]">{name.split(" ")[0]}</p>
+                    <p className="text-[11px] text-muted">{s.role === "super_admin" ? "Super Admin" : "Admin"}</p>
+                  </div>
+                  <span
+                    className="inline-flex items-center gap-[4px] rounded-full px-[8px] py-[2px] text-[10.5px] font-bold"
+                    style={{
+                      background: free ? "#E7F4F3" : "rgba(255,81,47,0.12)",
+                      color: free ? "#0D6B66" : "#E24020",
+                    }}
+                  >
+                    <span
+                      className="inline-block h-[5px] w-[5px] rounded-full"
+                      style={{ background: free ? "#0D6B66" : "#E24020" }}
+                    />
+                    {free ? "Free" : "Engaged"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Latest applications table ── */}
       <div className={cardCls} style={cardShadow}>

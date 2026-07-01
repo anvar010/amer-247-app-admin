@@ -32,11 +32,22 @@ export default async function StaffPage() {
 
   if (profile?.role !== "super_admin") redirect("/unauthorized");
 
-  const { data: staff } = await supabase
+  const { data: staffRaw } = await supabase
     .from("staff")
     .select("id, user_id, full_name, email, role, created_at")
     .order("role")
     .order("full_name");
+
+  // Enrich with live staff_status from profiles
+  const staffUserIds = (staffRaw || []).map((s) => s.user_id).filter(Boolean);
+  const { data: statusRows } = staffUserIds.length
+    ? await supabase.from("profiles").select("id, staff_status").in("id", staffUserIds)
+    : { data: [] as { id: string; staff_status: string | null }[] };
+  const statusMap = new Map((statusRows || []).map((r) => [r.id, r.staff_status]));
+  const staff = (staffRaw || []).map((s) => ({
+    ...s,
+    staff_status: (statusMap.get(s.user_id) as string | null) ?? "free",
+  }));
 
   const initials = (name: string) =>
     name.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
@@ -112,7 +123,7 @@ export default async function StaffPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-line-2">
-                {["Member", "Email", "Role", "Added", "Permissions"].map((h) => (
+                {["Member", "Email", "Role", "Status", "Added", "Permissions"].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.04em] text-muted-2 first:pl-[22px] last:pr-[22px]"
@@ -125,7 +136,7 @@ export default async function StaffPage() {
             <tbody>
               {(staff || []).length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-[22px] py-16 text-center">
+                  <td colSpan={6} className="px-[22px] py-16 text-center">
                     <div className="mx-auto mb-[14px] flex h-14 w-14 items-center justify-center rounded-[16px] bg-bg-card text-muted-2">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
@@ -145,7 +156,7 @@ export default async function StaffPage() {
                         >
                           {initials(s.full_name || "")}
                         </div>
-                        <span className="text-[13.5px] font-semibold text-ink">{s.full_name}</span>
+                        <a href={`/staff/${s.user_id}`} className="text-[13.5px] font-semibold text-ink hover:text-amer-700 hover:underline">{s.full_name}</a>
                       </div>
                     </td>
                     {/* Email */}
@@ -162,6 +173,22 @@ export default async function StaffPage() {
                         {s.role === "super_admin" ? "Super Admin" : "Admin"}
                       </span>
                     </td>
+                    {/* Status */}
+                    <td className="px-4 py-[14px]">
+                      <span
+                        className="inline-flex items-center gap-[5px] rounded-full px-[9px] py-[3px] text-[11.5px] font-bold"
+                        style={{
+                          background: s.staff_status === "engaged" ? "rgba(255,81,47,0.12)" : "#E7F4F3",
+                          color: s.staff_status === "engaged" ? "#E24020" : "#0D6B66",
+                        }}
+                      >
+                        <span
+                          className="inline-block h-[6px] w-[6px] rounded-full"
+                          style={{ background: s.staff_status === "engaged" ? "#E24020" : "#0D6B66" }}
+                        />
+                        {s.staff_status === "engaged" ? "Engaged" : "Free"}
+                      </span>
+                    </td>
                     {/* Added */}
                     <td className="px-4 py-[14px] text-[13px] text-muted">
                       {new Date(s.created_at).toLocaleDateString("en-GB", {
@@ -170,16 +197,12 @@ export default async function StaffPage() {
                     </td>
                     {/* Permissions */}
                     <td className="py-[14px] pl-4 pr-[22px]">
-                      {s.role === "admin" ? (
-                        <a
-                          href={`/users/${s.user_id}`}
-                          className="inline-flex h-[30px] items-center rounded-[9px] border border-line bg-bg-card px-3 text-[12px] font-semibold text-ink transition-colors hover:border-muted-2"
-                        >
-                          Edit permissions
-                        </a>
-                      ) : (
-                        <span className="text-[12.5px] text-muted">Full access</span>
-                      )}
+                      <a
+                        href={`/staff/${s.user_id}`}
+                        className="inline-flex h-[30px] items-center rounded-[9px] border border-line bg-bg-card px-3 text-[12px] font-semibold text-ink transition-colors hover:border-muted-2"
+                      >
+                        View profile
+                      </a>
                     </td>
                   </tr>
                 ))

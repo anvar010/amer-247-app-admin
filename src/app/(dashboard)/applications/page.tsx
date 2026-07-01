@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { getSessionUser } from "@/lib/supabase/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { StatusSelect } from "@/components/status-select";
 import { SearchInput } from "@/components/search-input";
 import { Pagination } from "@/components/pagination";
 import { RealtimeRefresher } from "@/components/realtime-refresher";
+import { StatusFilterCards } from "@/components/status-filter-cards";
 
 const PER_PAGE = 10;
 
@@ -29,13 +31,22 @@ function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 }
 
+const ASSIGN_FILTERS = [
+  { key: "all",        label: "All",          color: null },
+  { key: "mine",       label: "Assigned to me", color: "#E24020" },
+  { key: "unassigned", label: "Unassigned",   color: "#6B7280" },
+  { key: "assigned",   label: "Assigned",     color: "#2A5B9E" },
+  { key: "done",       label: "Work done",    color: "#0D6B66" },
+];
+
 export default async function ApplicationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; q?: string; page?: string; assign?: string }>;
 }) {
-  const { status: statusParam, q, page: pageParam } = await searchParams;
+  const { status: statusParam, q, page: pageParam, assign: assignParam } = await searchParams;
   const activeStatus = statusParam && statusParam !== "all" ? statusParam : null;
+  const activeAssign = assignParam && assignParam !== "all" ? assignParam : null;
   const searchQuery  = q?.trim() ?? "";
   const page         = Math.max(1, parseInt(pageParam ?? "1", 10));
 
@@ -50,14 +61,19 @@ export default async function ApplicationsPage({
     let q = admin.from("applications").select("*", { count: "exact" }).order("created_at", { ascending: false });
     if (activeStatus) q = q.eq("status", activeStatus) as typeof q;
     if (searchQuery)  q = q.or(`ref.ilike.%${searchQuery}%,service_name.ilike.%${searchQuery}%,applicant_name.ilike.%${searchQuery}%,hub_title.ilike.%${searchQuery}%`) as typeof q;
+    if (activeAssign === "mine") q = q.eq("assigned_to", user!.id) as typeof q;
+    else if (activeAssign === "unassigned") q = q.is("assigned_to", null) as typeof q;
+    else if (activeAssign === "assigned") q = q.in("assignment_status", ["assigned", "queued"]) as typeof q;
+    else if (activeAssign === "done") q = q.eq("assignment_status", "done") as typeof q;
     return q;
   };
 
-  const [appsResult, countResult, permsResult] = await Promise.all([
-    searchQuery || activeStatus
+  const [appsResult, countResult, assignCountResult, permsResult] = await Promise.all([
+    searchQuery || activeStatus || activeAssign
       ? buildAppQuery()
       : buildAppQuery().range((page - 1) * PER_PAGE, page * PER_PAGE - 1),
     admin.from("applications").select("status"),
+    admin.from("applications").select("assignment_status, assigned_to"),
     !isSuperAdmin && currentRole === "admin"
       ? supabase
           .from("admin_permissions")
@@ -69,7 +85,18 @@ export default async function ApplicationsPage({
 
   const { data: allRows, count: appTotal } = appsResult;
   const { data: countRows } = countResult;
+  const { data: assignCountRows } = assignCountResult;
   const perms = permsResult.data as { can_view_all_applications?: boolean; can_change_application_status?: boolean } | null;
+
+  // Assignment counts
+  const assignCounts: Record<string, number> = { mine: 0, assigned: 0, done: 0, unassigned: 0 };
+  (assignCountRows || []).forEach((r) => {
+    const s = (r as { assignment_status: string | null; assigned_to: string | null });
+    if (!s.assigned_to) assignCounts.unassigned++;
+    else if (s.assignment_status === "done") assignCounts.done++;
+    else if (s.assignment_status === "assigned" || s.assignment_status === "queued") assignCounts.assigned++;
+    if (s.assigned_to === user?.id) assignCounts.mine++;
+  });
 
   let canViewApplications = isSuperAdmin;
   let canChangeStatus = isSuperAdmin;
@@ -85,9 +112,14 @@ export default async function ApplicationsPage({
 
   // Group deduplication — only in the unfiltered "All" view
   const groupCountMap = new Map<string, number>();
+  const groupChildrenMap = new Map<string, typeof allRows>();
   (allRows || []).forEach((a) => {
     const gr = (a as Record<string, unknown>).group_ref as string | null;
-    if (gr) groupCountMap.set(gr, (groupCountMap.get(gr) || 0) + 1);
+    if (gr) {
+      groupCountMap.set(gr, (groupCountMap.get(gr) || 0) + 1);
+      if (!groupChildrenMap.has(gr)) groupChildrenMap.set(gr, []);
+      groupChildrenMap.get(gr)!.push(a);
+    }
   });
   const applications = activeStatus
     ? (allRows || [])
@@ -118,46 +150,64 @@ export default async function ApplicationsPage({
       </div>
 
       {/* Stat-bar filter */}
-      <div className="grid grid-cols-3 gap-[10px] sm:grid-cols-6">
-        {STAT_CELLS.map(({ key, label, dotColor }) => {
-          const count = key === "all" ? totalCount : (statusCounts[key] ?? 0);
-          const active = (activeStatus === key) || (key === "all" && !activeStatus);
+      <Suspense fallback={null}>
+        <StatusFilterCards
+          cells={STAT_CELLS}
+          statusCounts={statusCounts}
+          totalCount={totalCount}
+        />
+      </Suspense>
+
+      {/* Assignment filter strip */}
+      <div
+        className="flex flex-wrap items-center gap-[6px] rounded-[12px] border border-line bg-surface px-[14px] py-[10px]"
+        style={{ boxShadow: "var(--shadow-card)" }}
+      >
+        <span className="mr-[4px] text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted-2">Assignment</span>
+        <div className="h-[16px] w-px bg-line" />
+        {ASSIGN_FILTERS.map(({ key, label, color }) => {
+          const count = key === "all" ? totalCount : (assignCounts[key] ?? 0);
+          const active = (activeAssign === key) || (key === "all" && !activeAssign);
+          const href = (() => {
+            const p = new URLSearchParams();
+            if (activeStatus) p.set("status", activeStatus);
+            if (searchQuery)  p.set("q", searchQuery);
+            if (key !== "all") p.set("assign", key);
+            const s = p.toString();
+            return `/applications${s ? `?${s}` : ""}`;
+          })();
           return (
             <Link
               key={key}
-              href={key === "all" ? "/applications" : `/applications?status=${key}`}
-              className={`flex flex-col gap-3 rounded-[14px] border bg-surface p-[13px_14px] text-left transition-all hover:-translate-y-[1px] ${
+              href={href}
+              className={`inline-flex items-center gap-[5px] rounded-[8px] px-[10px] py-[5px] text-[12.5px] font-semibold transition-all duration-150 ${
                 active
-                  ? "border-amer-700"
-                  : "border-line hover:border-muted-2"
+                  ? "text-white"
+                  : "text-muted hover:text-ink"
               }`}
-              style={{ boxShadow: active ? "inset 0 0 0 1px var(--amer-700), var(--shadow-card)" : "var(--shadow-card)" }}
+              style={
+                active
+                  ? { background: color ?? "#E24020", boxShadow: `0 2px 8px ${(color ?? "#E24020")}40` }
+                  : { background: "transparent" }
+              }
             >
-              <div className="flex items-center justify-between">
+              {color && (
                 <span
-                  className="flex h-7 w-7 items-center justify-center rounded-[9px]"
-                  style={dotColor ? { background: dotColor + "22", color: dotColor } : { background: "#F6F8FC", color: "#1A1A1A" }}
-                >
-                  {key === "all" ? (
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>
-                    </svg>
-                  ) : (
-                    <svg width="12" height="12" viewBox="0 0 10 10" fill="currentColor">
-                      <circle cx="5" cy="5" r="5"/>
-                    </svg>
-                  )}
-                </span>
-              </div>
-              <div
-                className="text-[22px] font-extrabold leading-none tracking-tight text-ink"
-                style={{ fontFamily: "var(--font-outfit)" }}
+                  className="inline-block h-[6px] w-[6px] flex-shrink-0 rounded-full"
+                  style={{ background: active ? "rgba(255,255,255,0.75)" : color }}
+                />
+              )}
+              {label}
+              <span
+                className="rounded-full px-[6px] py-[1px] text-[10.5px] font-bold"
+                style={
+                  active
+                    ? { background: "rgba(255,255,255,0.22)", color: "#fff" }
+                    : { background: "var(--bg-card)", color: "var(--muted)" }
+                }
               >
                 {count}
-              </div>
-              <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px] font-semibold text-muted">
-                {label}
-              </div>
+              </span>
             </Link>
           );
         })}
@@ -226,6 +276,12 @@ export default async function ApplicationsPage({
                   const profile = profileMap.get(app.user_id);
                   const groupCount = groupCountMap.get(app.ref);
                   const ini = initials(profile?.full_name || profile?.email || "?");
+                  const appExt = app as typeof app & { assigned_to?: string | null; assignment_status?: string | null };
+                  const assignBadge =
+                    appExt.assignment_status === "done"      ? { label: "Done",       bg: "#E7F4F3", color: "#0D6B66" } :
+                    appExt.assignment_status === "queued"    ? { label: "Queued",     bg: "#FFF8E7", color: "#A6822F" } :
+                    appExt.assignment_status === "assigned"  ? { label: "Assigned",   bg: "#EAF0FA", color: "#2A5B9E" } :
+                    null;
                   return (
                     <tr key={app.id} className="border-b border-line-2 transition-colors last:border-none hover:bg-bg-card">
                       {/* Reference */}
@@ -247,6 +303,14 @@ export default async function ApplicationsPage({
                           {groupCount && groupCount > 1 && (
                             <span className="flex h-5 min-w-5 items-center justify-center rounded-[10px] bg-amer-700 px-1.5 text-[10px] font-bold text-white">
                               {groupCount}
+                            </span>
+                          )}
+                          {assignBadge && (
+                            <span
+                              className="inline-flex items-center rounded-full px-[6px] py-[2px] text-[10px] font-bold"
+                              style={{ background: assignBadge.bg, color: assignBadge.color }}
+                            >
+                              {assignBadge.label}
                             </span>
                           )}
                         </div>
@@ -284,14 +348,32 @@ export default async function ApplicationsPage({
                       </td>
                       {/* Status */}
                       <td className="py-[14px] pl-4 pr-[22px]">
-                        <StatusSelect
-                          applicationId={app.id}
-                          status={app.status}
-                          rejectionReason={app.rejection_reason}
-                          userId={app.user_id}
-                          serviceName={app.service_name}
-                          canEdit={canChangeStatus}
-                        />
+                        {groupCount && groupCount > 1 ? (
+                          <div className="flex flex-col gap-[5px]">
+                            {(groupChildrenMap.get(app.ref) || []).map((child) => (
+                              <span
+                                key={child.id}
+                                className={`inline-flex w-fit items-center gap-[6px] rounded-full px-3 py-[4px] text-[12px] font-semibold ${STATUS_META[child.status]?.pill ?? "bg-bg-card text-muted"}`}
+                              >
+                                <span
+                                  className="h-[6px] w-[6px] flex-shrink-0 rounded-full"
+                                  style={{ background: STATUS_META[child.status]?.dot ?? "#9CA3AF" }}
+                                />
+                                {STATUS_META[child.status]?.label ?? child.status}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <StatusSelect
+                            applicationId={app.id}
+                            status={app.status}
+                            refundStatus={(app as typeof app & { refund_status?: string | null }).refund_status}
+                            rejectionReason={app.rejection_reason}
+                            userId={app.user_id}
+                            serviceName={app.service_name}
+                            canEdit={canChangeStatus}
+                          />
+                        )}
                       </td>
                     </tr>
                   );

@@ -39,5 +39,6 @@ export async function updateDocStatus(
   if (error) return { error: error.message };
 
   revalidatePath(`/users/${userId}`);
+  revalidatePath("/documents");
   return { success: true };
 }

@@ -4,15 +4,14 @@ import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
-const STORAGE_KEY = "notif_last_read_at";
-
 type NotifItem = {
   id: string;
-  type: "application" | "document";
+  type: "application" | "document" | "assignment";
   title: string;
   subtitle: string;
   href: string;
   created_at: string;
+  is_read: boolean;
 };
 
 function timeAgo(dateStr: string): string {
@@ -26,170 +25,118 @@ function timeAgo(dateStr: string): string {
 }
 
 export function NotificationBell({ count }: { count: number }) {
-  const [open, setOpen]           = useState(false);
-  const [items, setItems]         = useState<NotifItem[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [lastRead, setLastRead]   = useState(0);
-  const [badgeCount, setBadgeCount] = useState(count);
+  const [open, setOpen]             = useState(false);
+  const [items, setItems]           = useState<NotifItem[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [unreadCount, setUnreadCount] = useState(count);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Realtime subscription — live updates without page refresh
+  // Get current user + refresh unread count from DB
   useEffect(() => {
     const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      setCurrentUserId(user.id);
+      supabase
+        .from("admin_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_read", false)
+        .then(({ count: c }) => setUnreadCount(c ?? 0));
+    });
+  }, []);
 
+  // Realtime: new notification inserted for current user
+  useEffect(() => {
+    if (!currentUserId) return;
+    const supabase = createClient();
     const channel = supabase
-      .channel("admin-notif-realtime")
+      .channel("admin-notif-bell")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "applications", filter: "status=eq.submitted" },
+        { event: "INSERT", schema: "public", table: "admin_notifications", filter: `user_id=eq.${currentUserId}` },
         (payload) => {
-          const a = payload.new as { id: string; ref: string; service_name: string; created_at: string };
-          setBadgeCount((n) => n + 1);
-          setItems((prev) => [
-            {
-              id: `app-${a.id}`,
-              type: "application",
-              title: `New application ${a.ref}`,
-              subtitle: a.service_name,
-              href: `/applications/${a.id}`,
-              created_at: a.created_at,
-            },
-            ...prev,
-          ]);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "user_documents", filter: "status=eq.pending" },
-        (payload) => {
-          const d = payload.new as { id: string; doc_type: string; file_name: string; created_at: string };
-          const subtitle = (d.doc_type || "")
-            .replace(/_/g, " ")
-            .replace(/\b\w/g, (c) => c.toUpperCase()) || d.file_name || "New document";
-          setBadgeCount((n) => n + 1);
-          setItems((prev) => [
-            {
-              id: `doc-${d.id}`,
-              type: "document",
-              title: "Document uploaded",
-              subtitle,
-              href: "/documents",
-              created_at: d.created_at,
-            },
-            ...prev,
-          ]);
+          const n = payload.new as { id: string; type: string; title: string; body: string | null; href: string | null; is_read: boolean; created_at: string };
+          setUnreadCount((c) => c + 1);
+          setItems((prev) => [{
+            id: n.id,
+            type: (n.type || "assignment") as NotifItem["type"],
+            title: n.title,
+            subtitle: n.body || "",
+            href: n.href || "/applications",
+            created_at: n.created_at,
+            is_read: false,
+          }, ...prev]);
         }
       )
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [currentUserId]);
 
-  // On mount: read lastRead from localStorage, then recount only unread items
+  // Load items when panel opens
   useEffect(() => {
-    const stored = parseInt(localStorage.getItem(STORAGE_KEY) ?? "0", 10);
-    setLastRead(stored);
-
-    if (stored === 0) {
-      // Never marked as read — use server count as-is
-      return;
-    }
-
-    // There's a stored timestamp — check how many items arrived AFTER it
-    const supabase = createClient();
-    const since = new Date(stored).toISOString();
-
-    Promise.all([
-      supabase
-        .from("applications")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "submitted")
-        .gt("created_at", since),
-      supabase
-        .from("user_documents")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "pending")
-        .gt("created_at", since),
-    ]).then(([{ count: a }, { count: d }]) => {
-      setBadgeCount((a ?? 0) + (d ?? 0));
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
+    if (!open || !currentUserId) return;
     setLoading(true);
-    const supabase = createClient();
+    createClient()
+      .from("admin_notifications")
+      .select("id, type, title, body, href, is_read, created_at")
+      .eq("user_id", currentUserId)
+      .order("created_at", { ascending: false })
+      .limit(5)
+      .then(({ data }) => {
+        setItems((data || []).map((n) => ({
+          id: n.id as string,
+          type: ((n.type as string) || "assignment") as NotifItem["type"],
+          title: n.title as string,
+          subtitle: (n.body as string) || "",
+          href: (n.href as string) || "/applications",
+          created_at: n.created_at as string,
+          is_read: n.is_read as boolean,
+        })));
+        setLoading(false);
+      });
+  }, [open, currentUserId]);
 
-    Promise.all([
-      supabase
-        .from("applications")
-        .select("id, ref, service_name, created_at")
-        .eq("status", "submitted")
-        .order("created_at", { ascending: false })
-        .limit(10),
-      supabase
-        .from("user_documents")
-        .select("id, doc_type, file_name, created_at, user_id")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(10),
-    ]).then(([{ data: apps }, { data: docs }]) => {
-      const appItems: NotifItem[] = (apps || []).map((a) => ({
-        id: `app-${a.id}`,
-        type: "application",
-        title: `New application ${a.ref}`,
-        subtitle: a.service_name,
-        href: `/applications/${a.id}`,
-        created_at: a.created_at,
-      }));
-
-      const docItems: NotifItem[] = (docs || []).map((d) => ({
-        id: `doc-${d.id}`,
-        type: "document",
-        title: "Document uploaded",
-        subtitle: (d.doc_type as string || "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) || d.file_name || "New document",
-        href: `/documents`,
-        created_at: d.created_at,
-      }));
-
-      const merged = [...appItems, ...docItems].sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-
-      setItems(merged);
-      setLoading(false);
-    });
-  }, [open]);
-
-  useEffect(() => {
-    if (items.length === 0) return;
-    const unread = items.filter(
-      (i) => new Date(i.created_at).getTime() > lastRead
-    ).length;
-    setBadgeCount(unread);
-  }, [items, lastRead]);
-
+  // Outside click
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node))
-        setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
   function markAllRead() {
-    const now = Date.now();
-    localStorage.setItem(STORAGE_KEY, String(now));
-    setLastRead(now);
-    setBadgeCount(0);
+    setUnreadCount(0);
+    setItems((prev) => prev.map((i) => ({ ...i, is_read: true })));
+    if (currentUserId) {
+      createClient()
+        .from("admin_notifications")
+        .update({ is_read: true })
+        .eq("user_id", currentUserId)
+        .eq("is_read", false)
+        .then(() => {});
+    }
   }
 
-  const isUnread = (item: NotifItem) =>
-    new Date(item.created_at).getTime() > lastRead;
-
-  const displayCount = badgeCount > 0 ? badgeCount : 0;
+  const ICON = {
+    application: (color: string) => (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" stroke={color}>
+        <rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" />
+      </svg>
+    ),
+    assignment: (color: string) => (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" stroke={color}>
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+      </svg>
+    ),
+    document: (color: string) => (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" stroke={color}>
+        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" />
+      </svg>
+    ),
+  };
 
   return (
     <div ref={wrapRef} className="relative">
@@ -203,12 +150,12 @@ export function NotificationBell({ count }: { count: number }) {
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
-        {displayCount > 0 && (
+        {unreadCount > 0 && (
           <span
             className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-[4px] text-[10px] font-bold text-white"
             style={{ background: "var(--amer-700, #E24020)" }}
           >
-            {displayCount > 99 ? "99+" : displayCount}
+            {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
       </button>
@@ -216,7 +163,7 @@ export function NotificationBell({ count }: { count: number }) {
       {/* Panel */}
       {open && (
         <div
-          className="absolute right-0 top-[calc(100%+10px)] z-50 w-[360px] overflow-hidden rounded-[16px] border border-line bg-surface"
+          className="animate-dropdown-in absolute right-0 top-[calc(100%+10px)] z-50 w-[360px] overflow-hidden rounded-[16px] border border-line bg-surface"
           style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)" }}
         >
           {/* Header */}
@@ -225,26 +172,23 @@ export function NotificationBell({ count }: { count: number }) {
               <h3 className="text-[15px] font-bold text-ink" style={{ fontFamily: "var(--font-outfit)" }}>
                 Notifications
               </h3>
-              {displayCount > 0 && (
+              {unreadCount > 0 && (
                 <span
                   className="flex h-[19px] min-w-[19px] items-center justify-center rounded-full px-[5px] text-[10px] font-bold text-white"
                   style={{ background: "var(--amer-700, #E24020)" }}
                 >
-                  {displayCount}
+                  {unreadCount}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-3">
-              {displayCount > 0 && (
-                <button
-                  onClick={markAllRead}
-                  className="text-[12px] font-semibold text-muted transition-colors hover:text-ink"
-                >
+              {unreadCount > 0 && (
+                <button onClick={markAllRead} className="text-[12px] font-semibold text-muted transition-colors hover:text-ink">
                   Mark all read
                 </button>
               )}
               <Link
-                href="/applications?status=submitted"
+                href="/inbox"
                 onClick={() => setOpen(false)}
                 className="text-[12px] font-semibold hover:underline"
                 style={{ color: "var(--amer-700, #E24020)" }}
@@ -255,90 +199,66 @@ export function NotificationBell({ count }: { count: number }) {
           </div>
 
           {/* List */}
-          <div className="max-h-[420px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+          <div className="overflow-hidden">
             {loading ? (
               <div className="flex items-center justify-center py-12">
-                <div
-                  className="h-5 w-5 animate-spin rounded-full border-2"
-                  style={{ borderColor: "var(--line)", borderTopColor: "var(--amer-700, #E24020)" }}
-                />
+                <div className="h-5 w-5 animate-spin rounded-full border-2" style={{ borderColor: "var(--line)", borderTopColor: "var(--amer-700, #E24020)" }} />
               </div>
             ) : items.length === 0 ? (
-              <div className="px-5 py-12 text-center">
+              <div className="px-5 py-10 text-center">
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[14px] bg-bg-card text-muted-2">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
                   </svg>
                 </div>
                 <p className="text-[13px] font-medium text-muted">All caught up</p>
-                <p className="mt-1 text-[12px] text-muted-2">No pending items</p>
+                <p className="mt-1 text-[12px] text-muted-2">No notifications yet</p>
               </div>
             ) : (
-              items.map((item) => {
-                const unread = isUnread(item);
-                return (
-                  <Link
-                    key={item.id}
-                    href={item.href}
-                    onClick={() => setOpen(false)}
-                    className="flex items-start gap-[13px] border-b border-line-2 px-5 py-[13px] transition-colors last:border-none hover:bg-bg-card"
-                    style={unread ? { background: "rgba(226,64,32,0.03)" } : undefined}
+              items.map((item) => (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  className="flex items-start gap-[13px] border-b border-line-2 px-5 py-[13px] transition-colors last:border-none hover:bg-bg-card"
+                  style={!item.is_read ? { background: "rgba(226,64,32,0.03)" } : undefined}
+                >
+                  <div
+                    className="mt-[2px] flex h-[36px] w-[36px] flex-shrink-0 items-center justify-center rounded-[10px]"
+                    style={{ background: !item.is_read ? "rgba(226,64,32,0.12)" : "rgba(0,0,0,0.06)" }}
                   >
-                    {/* Icon */}
-                    <div
-                      className="mt-[2px] flex h-[36px] w-[36px] flex-shrink-0 items-center justify-center rounded-[10px]"
-                      style={{ background: unread ? "rgba(226,64,32,0.12)" : "rgba(0,0,0,0.06)" }}
-                    >
-                      {item.type === "application" ? (
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" stroke={unread ? "#E24020" : "#888"}>
-                          <rect x="4" y="3" width="16" height="18" rx="2" />
-                          <path d="M8 8h8M8 12h8M8 16h5" />
-                        </svg>
-                      ) : (
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" stroke={unread ? "#E24020" : "#888"}>
-                          <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-                          <polyline points="13 2 13 9 20 9" />
-                          <path d="M12 18v-6M9 15l3 3 3-3" />
-                        </svg>
-                      )}
-                    </div>
-
-                    {/* Text */}
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-[13px] ${unread ? "font-semibold text-ink" : "font-medium text-muted"}`}>
-                        {item.title}
-                      </p>
-                      <p className="mt-[2px] truncate text-[12px] text-muted-2">{item.subtitle}</p>
-                      <p className="mt-[3px] text-[11px] text-muted-2">{timeAgo(item.created_at)}</p>
-                    </div>
-
-                    {/* Unread dot */}
-                    {unread && (
-                      <div
-                        className="mt-[7px] h-2 w-2 flex-shrink-0 rounded-full"
-                        style={{ background: "var(--amer-700, #E24020)" }}
-                      />
-                    )}
-                  </Link>
-                );
-              })
+                    {ICON[item.type](!item.is_read ? "#E24020" : "#888")}
+                  </div>
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <p className={`truncate text-[13px] ${!item.is_read ? "font-semibold text-ink" : "font-medium text-muted"}`}>
+                      {item.title}
+                    </p>
+                    <p className="mt-[2px] truncate text-[12px] text-muted-2">{item.subtitle}</p>
+                    <p className="mt-[3px] text-[11px] text-muted-2">{timeAgo(item.created_at)}</p>
+                  </div>
+                  {!item.is_read && (
+                    <div className="mt-[7px] h-2 w-2 flex-shrink-0 rounded-full" style={{ background: "var(--amer-700, #E24020)" }} />
+                  )}
+                </Link>
+              ))
             )}
           </div>
 
           {/* Footer */}
-          {items.length > 0 && (
-            <div className="border-t border-line px-5 py-[11px]">
-              <Link
-                href="/documents"
-                onClick={() => setOpen(false)}
-                className="block text-center text-[12.5px] font-semibold hover:underline"
-                style={{ color: "var(--amer-700, #E24020)" }}
-              >
-                Go to Documents →
-              </Link>
-            </div>
-          )}
+          <div className="border-t border-line px-5 py-[12px]">
+            <Link
+              href="/inbox"
+              onClick={() => setOpen(false)}
+              className="flex w-full items-center justify-center gap-2 rounded-[11px] py-[10px] text-[13px] font-semibold transition-colors hover:bg-bg-card"
+              style={{ color: "var(--amer-700, #E24020)" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+              </svg>
+              View inbox
+            </Link>
+          </div>
         </div>
       )}
     </div>

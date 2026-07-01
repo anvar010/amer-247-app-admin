@@ -4,6 +4,9 @@ import Link from "next/link";
 import { getSessionUser } from "@/lib/supabase/session";
 import { StatusSelect, RefundStatusSelect } from "@/components/status-select";
 import { labelForField } from "@/lib/form-fields";
+import { AssignOfficerPanel, type StaffMember } from "@/components/assign-officer-panel";
+import { EngageButton } from "@/components/engage-button";
+import { ActivityLog } from "@/components/activity-log";
 
 const STATUS_STEP: Record<string, number> = {
   submitted: 0, in_review: 1, scheduled: 2, approved: 3, rejected: 1,
@@ -112,6 +115,47 @@ export default async function ApplicationDetailPage({
 
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", app.user_id).single();
 
+  // Staff assignment data
+  const [{ data: staffList }, { data: currentUserProfile }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, full_name, email, role, staff_status")
+      .in("role", ["admin", "super_admin"])
+      .order("full_name"),
+    supabase
+      .from("profiles")
+      .select("staff_status")
+      .eq("id", currentUser!.id)
+      .single(),
+  ]);
+
+  type AppWithAssignment = typeof app & {
+    assigned_to?: string | null;
+    assignment_status?: string | null;
+  };
+  const appWithAssign = app as AppWithAssignment;
+  const assignedTo = appWithAssign.assigned_to ?? null;
+  const assignmentStatus = appWithAssign.assignment_status ?? null;
+
+  let assignedProfile: StaffMember | null = null;
+  if (assignedTo) {
+    const found = (staffList || []).find((s) => s.id === assignedTo);
+    if (found) {
+      assignedProfile = found as StaffMember;
+    } else {
+      const { data: ap } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, role, staff_status")
+        .eq("id", assignedTo)
+        .single();
+      assignedProfile = ap as StaffMember | null;
+    }
+  }
+
+  const myStaffStatus =
+    ((currentUserProfile as { staff_status?: string | null } | null)?.staff_status as "free" | "engaged") ||
+    "free";
+
   const groupRef = (app as Record<string, unknown>).group_ref as string | null;
   const isGroupPrimary = !!(groupRef && app.ref === groupRef);
 
@@ -155,41 +199,53 @@ export default async function ApplicationDetailPage({
     return (
       <div key={a.id} className={cardCls} style={cardShadow}>
         {/* Card head */}
-        <div className="flex items-center gap-3 border-b border-line px-[22px] py-[18px]">
-          {showBadge && (
-            <div
-              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
-              style={{ background: "linear-gradient(155deg, #FF6B4A, #FF512F)" }}
-            >
-              {idx + 1}
+        <div className="border-b border-line px-[22px] py-[18px]">
+          <div className="flex items-center gap-3">
+            {showBadge && (
+              <div
+                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
+                style={{ background: "linear-gradient(155deg, #FF6B4A, #FF512F)" }}
+              >
+                {idx + 1}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <span className="text-[14px] font-bold text-ink" style={{ fontFamily: "var(--font-outfit)" }}>
+                {a.ref}
+              </span>
+              {a.applicant_name && (
+                <p className="mt-[2px] text-[12px] text-muted">{a.applicant_name}</p>
+              )}
             </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <span className="text-[14px] font-bold text-ink" style={{ fontFamily: "var(--font-outfit)" }}>
-              {a.ref}
-            </span>
-            {a.applicant_name && (
-              <p className="mt-[2px] text-[12px] text-muted">{a.applicant_name}</p>
+            {showBadge ? (
+              <StatusSelect
+                applicationId={a.id}
+                status={a.status}
+                rejectionReason={a.rejection_reason}
+                userId={a.user_id}
+                serviceName={a.service_name}
+                canEdit={canChangeStatus}
+                variant="pill"
+              />
+            ) : (
+              <span
+                className="inline-flex items-center gap-[5px] rounded-full px-[10px] py-[4px] text-[11.5px] font-bold"
+                style={{ background: aPill.bg, color: aPill.color }}
+              >
+                {aPill.label}
+              </span>
             )}
           </div>
-          {/* Group members get their own interactive status selector */}
-          {showBadge ? (
-            <StatusSelect
-              applicationId={a.id}
-              status={a.status}
-              rejectionReason={a.rejection_reason}
-              userId={a.user_id}
-              serviceName={a.service_name}
-              canEdit={canChangeStatus}
-              variant="pill"
-            />
-          ) : (
-            <span
-              className="inline-flex items-center gap-[5px] rounded-full px-[10px] py-[4px] text-[11.5px] font-bold"
-              style={{ background: aPill.bg, color: aPill.color }}
-            >
-              {aPill.label}
-            </span>
+          {a.status === "rejected" && a.rejection_reason && (
+            <div className="mt-[10px] flex items-start gap-[8px] rounded-[10px] bg-[#FFF5F3] border border-[#FBD5D0] px-[12px] py-[10px]">
+              <svg className="mt-[1px] flex-shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#B53224" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+              <div>
+                <p className="text-[11.5px] font-bold text-[#B53224]">Rejection reason</p>
+                <p className="mt-[1px] text-[12.5px] text-[#B53224]">{a.rejection_reason}</p>
+              </div>
+            </div>
           )}
         </div>
 
@@ -344,12 +400,14 @@ export default async function ApplicationDetailPage({
                 {new Date(app.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
               </p>
             </div>
-            <span
-              className="inline-flex flex-shrink-0 items-center gap-[5px] rounded-full px-[12px] py-[5px] text-[12px] font-bold"
-              style={{ background: pill.bg, color: pill.color }}
-            >
-              {pill.label}
-            </span>
+            {!isGroupPrimary && (
+              <span
+                className="inline-flex flex-shrink-0 items-center gap-[5px] rounded-full px-[12px] py-[5px] text-[12px] font-bold"
+                style={{ background: pill.bg, color: pill.color }}
+              >
+                {pill.label}
+              </span>
+            )}
           </div>
 
           {/* Stepper card */}
@@ -375,15 +433,33 @@ export default async function ApplicationDetailPage({
             </div>
             <div className="px-[22px] py-[18px]">
               {isGroupPrimary && groupApps.length > 1 ? (
-                <div>
-                  <span
-                    className="inline-flex items-center gap-[6px] rounded-full px-[12px] py-[5px] text-[12.5px] font-bold"
-                    style={{ background: pill.bg, color: pill.color }}
-                  >
-                    {pill.label}
-                  </span>
-                  <p className="mt-[10px] text-[13px] leading-relaxed text-muted">
-                    This is a group application with <b className="font-semibold text-ink">{groupApps.length} applicants</b>. Change each applicant&apos;s status individually using the dropdown in their card above.
+                <div className="flex flex-col gap-[8px]">
+                  {groupApps.map((a, idx) => {
+                    const aPill = STATUS_PILL[a.status] ?? { bg: "var(--bg-card)", color: "var(--muted)", label: a.status };
+                    return (
+                      <div key={a.id} className="flex items-center justify-between gap-3 rounded-[10px] border border-line bg-bg-card px-[12px] py-[9px]">
+                        <div className="flex items-center gap-[8px]">
+                          <span
+                            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                            style={{ background: "linear-gradient(155deg, #FF6B4A, #FF512F)" }}
+                          >
+                            {idx + 1}
+                          </span>
+                          <span className="text-[12.5px] font-bold text-ink" style={{ fontFamily: "var(--font-outfit)" }}>
+                            {a.ref}
+                          </span>
+                        </div>
+                        <span
+                          className="inline-flex items-center gap-[5px] rounded-full px-[9px] py-[3px] text-[11px] font-bold"
+                          style={{ background: aPill.bg, color: aPill.color }}
+                        >
+                          {aPill.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <p className="mt-[2px] text-[12px] leading-relaxed text-muted">
+                    Change each applicant&apos;s status individually using the dropdown in their card above.
                   </p>
                 </div>
               ) : (
@@ -400,6 +476,45 @@ export default async function ApplicationDetailPage({
                 />
               )}
             </div>
+          </div>
+
+          {/* Assigned officer card */}
+          <div className={cardCls} style={cardShadow}>
+            <div className="border-b border-line px-[22px] py-[18px]">
+              <h3 className="text-[16px] font-bold text-ink" style={{ fontFamily: "var(--font-outfit)" }}>Assigned officer</h3>
+            </div>
+            <div className="flex flex-col gap-[14px] px-[22px] py-[18px]">
+              <AssignOfficerPanel
+                applicationId={app.id}
+                assignedTo={assignedTo}
+                assignedProfile={assignedProfile}
+                assignmentStatus={assignmentStatus}
+                staff={(staffList || []) as StaffMember[]}
+                isSuperAdmin={isSuperAdmin}
+                currentUserId={currentUser!.id}
+                applicationRef={app.ref}
+                serviceName={app.service_name}
+              />
+              {(!assignedTo || assignedTo === currentUser!.id) && (
+                <div className="border-t border-line-2 pt-[14px]">
+                  <p className="mb-[8px] text-[11px] font-bold uppercase tracking-[0.05em] text-muted-2">
+                    Your work session
+                  </p>
+                  <EngageButton
+                    applicationId={app.id}
+                    currentUserId={currentUser!.id}
+                    initialStatus={myStaffStatus}
+                    assignedTo={assignedTo}
+                    assignmentStatus={assignmentStatus}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Activity log card */}
+          <div className={cardCls} style={cardShadow}>
+            <ActivityLog applicationId={app.id} />
           </div>
 
           {/* Fee card */}

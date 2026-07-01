@@ -11,9 +11,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const isSuperAdmin = profile?.role === "super_admin";
 
   const admin = createAdminClient();
-  const [{ count: newApps }, { count: pendingDocs }] = await Promise.all([
+  const [{ count: newApps }, { count: pendingDocs }, { count: inboxUnread }] = await Promise.all([
     admin.from("applications").select("*", { count: "exact", head: true }).eq("status", "submitted"),
     admin.from("user_documents").select("*", { count: "exact", head: true }).eq("status", "pending"),
+    user
+      ? admin.from("admin_notifications").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("is_read", false)
+      : Promise.resolve({ count: 0 }),
   ]);
 
   return (
@@ -31,12 +34,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
           isSuperAdmin={isSuperAdmin}
           displayName={displayName}
           userRole={userRole}
-          badges={{ "/applications": newApps ?? 0, "/documents": pendingDocs ?? 0 }}
+          badges={{ "/applications": newApps ?? 0, "/documents": pendingDocs ?? 0, "/inbox": inboxUnread ?? 0 }}
         />
       </aside>
 
       <div className="flex flex-col overflow-hidden">
-        <Topbar notifCount={(newApps ?? 0) + (pendingDocs ?? 0)} />
+        <div className="relative z-20 flex-shrink-0">
+          <Topbar notifCount={inboxUnread ?? 0} />
+        </div>
         <main className="flex-1 overflow-y-auto bg-bg p-7">{children}</main>
       </div>
     </div>

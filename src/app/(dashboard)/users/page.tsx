@@ -11,11 +11,6 @@ function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 }
 
-const ROLE_PILL: Record<string, { bg: string; color: string; label: string }> = {
-  super_admin: { bg: "rgba(27,163,156,0.13)", color: "#0D6B66",       label: "Super Admin" },
-  admin:       { bg: "rgba(255,81,47,0.12)",  color: "#E24020",       label: "Admin"       },
-  user:        { bg: "var(--bg-card)",         color: "var(--muted)", label: "User"        },
-};
 
 export default async function UsersPage({
   searchParams,
@@ -26,14 +21,11 @@ export default async function UsersPage({
   const searchQuery = q?.trim() ?? "";
   const page        = Math.max(1, parseInt(pageParam ?? "1", 10));
 
-  const { profile } = await getSessionUser();
+  await getSessionUser();
   const admin = createAdminClient();
 
-  const currentUserRole = profile?.role ?? "user";
-
   const buildQuery = () => {
-    let q = admin.from("profiles").select("*", { count: "exact" }).order("created_at", { ascending: false });
-    if (currentUserRole !== "super_admin") q = q.eq("role", "user") as typeof q;
+    let q = admin.from("profiles").select("*", { count: "exact" }).eq("role", "user").order("created_at", { ascending: false });
     if (searchQuery) q = q.or(`full_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,mobile.ilike.%${searchQuery}%`) as typeof q;
     return q;
   };
@@ -85,7 +77,7 @@ export default async function UsersPage({
           <table className="w-full">
             <thead>
               <tr className="border-b border-line-2">
-                {["Name", "Email", "Mobile", "Nationality", "Joined", "Role", ""].map((h) => (
+                {["Name", "Email", "Mobile", "Nationality", "Joined", ""].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.04em] text-muted-2 first:pl-[22px] last:pr-[22px]"
@@ -98,7 +90,7 @@ export default async function UsersPage({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-[22px] py-16 text-center">
+                  <td colSpan={6} className="px-[22px] py-16 text-center">
                     <div className="mx-auto mb-[14px] flex h-14 w-14 items-center justify-center rounded-[16px] bg-bg-card text-muted-2">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
@@ -111,8 +103,7 @@ export default async function UsersPage({
                 </tr>
               ) : (
                 rows.map((p) => {
-                  const ini  = initials(p.full_name || p.email || "?");
-                  const role = ROLE_PILL[p.role] ?? ROLE_PILL.user;
+                  const ini = initials(p.full_name || p.email || "?");
                   return (
                     <tr key={p.id} className="border-b border-line-2 transition-colors last:border-none hover:bg-bg-card">
                       <td className="py-[14px] pl-[22px] pr-4">
@@ -128,14 +119,6 @@ export default async function UsersPage({
                       <td className="px-4 py-[14px] text-[13px] text-muted">{p.nationality || "—"}</td>
                       <td className="whitespace-nowrap px-4 py-[14px] text-[13px] text-muted">
                         {new Date(p.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                      </td>
-                      <td className="px-4 py-[14px]">
-                        <span
-                          className="inline-flex items-center rounded-full px-[10px] py-[4px] text-[11.5px] font-bold"
-                          style={{ background: role.bg, color: role.color }}
-                        >
-                          {role.label}
-                        </span>
                       </td>
                       <td className="py-[14px] pl-4 pr-[22px]">
                         <Link

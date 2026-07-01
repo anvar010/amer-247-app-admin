@@ -11,6 +11,7 @@ const PAGE_META: Record<string, [string, string]> = {
   "/users":         ["Users",          "Registered AMER 24/7 app users"],
   "/staff":         ["Staff & roles",  "Console users and permissions"],
   "/wallet":        ["Wallet",         "Bonus amounts, service caps & promotional credits"],
+  "/inbox":         ["Inbox",          "Your notifications and assigned applications"],
 };
 
 export function Topbar({ notifCount = 0 }: { notifCount?: number }) {
